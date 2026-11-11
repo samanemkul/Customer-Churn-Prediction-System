@@ -221,7 +221,7 @@ def analysis(df: pd.DataFrame):
 
 def prediction_inputs():
     """Names and categorical values follow the original IBM Telco DATASET."""
-    with st.form("prediction_form"):
+    with st.form(key="sama_churn_prediction_form"):
         st.subheader("Customer Profile")
         a, b, c = st.columns(3)
         with a:
@@ -248,7 +248,7 @@ def prediction_inputs():
             total_charges = st.number_input("Total charges ($)", min_value=0.0, max_value=1000000.0, value=840.0, step=10.0,
                                             help="Enter the actual billing total. Do not approximate for a real prediction.")
         submitted = st.form_submit_button("Analyze Churn Risk", type="primary", use_container_width=True)
-    payload = {"gender": gender, "SeniorCitizen": int(senior == "Yes"), "Partner": partner,
+    payload = {"gender": gender, "SeniorCitizen": senior, "Partner": partner,
                "Dependents": dependents, "tenure": tenure, "PhoneService": phone,
                "MultipleLines": multiple, "InternetService": internet, "OnlineSecurity": online_security,
                "OnlineBackup": online_backup, "DeviceProtection": device_protection,
@@ -272,53 +272,141 @@ def extract_probability(response: dict):
 
 
 def predict(api_url: str):
-    title("Predict Customer Churn", "Use the saved machine-learning model to estimate churn risk for an individual customer.")
-    st.info("This form sends the original Telco feature names to your FastAPI /predict endpoint. If your Pydantic schema uses other names or expects preprocessed fields, map the payload accordingly.")
+    title(
+        "Predict Customer Churn",
+        "Use the saved machine-learning model to estimate churn risk for an individual customer."
+    )
+
+    st.info(
+        "This form sends customer information to your FastAPI /predict endpoint."
+    )
+
     submitted, payload = prediction_inputs()
+
     if not submitted:
         return
+
+    # Validate phone service selections
     if payload["PhoneService"] == "No":
         payload["MultipleLines"] = "No phone service"
     elif payload["MultipleLines"] == "No phone service":
-        st.error("Multiple lines cannot be 'No phone service' when phone service is enabled.")
+        st.error(
+            "Multiple lines cannot be 'No phone service' "
+            "when phone service is enabled."
+        )
         return
-    internet_children = ["OnlineSecurity", "OnlineBackup", "DeviceProtection", "TechSupport", "StreamingTV", "StreamingMovies"]
+
+    # Validate internet service selections
+    internet_children = [
+        "OnlineSecurity",
+        "OnlineBackup",
+        "DeviceProtection",
+        "TechSupport",
+        "StreamingTV",
+        "StreamingMovies"
+    ]
+
     if payload["InternetService"] == "No":
         for key in internet_children:
             payload[key] = "No internet service"
-    elif any(payload[key] == "No internet service" for key in internet_children):
-        st.error("Internet add-ons cannot be 'No internet service' when internet service is enabled.")
+
+    elif any(
+        payload[key] == "No internet service"
+        for key in internet_children
+    ):
+        st.error(
+            "Internet add-ons cannot be 'No internet service' "
+            "when internet service is enabled."
+        )
         return
+
+    # Send prediction request to FastAPI
     try:
-        result = requests.post(api_url, json=payload, timeout=15)
-        result.raise_for_status()
-        data = result.json()
+        response = requests.post(
+            api_url,
+            json=payload,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            st.error(f"API Error: {response.status_code}")
+
+            try:
+                st.json(response.json())
+            except ValueError:
+                st.code(response.text)
+
+            return
+
+        data = response.json()
         prob = extract_probability(data)
+
     except requests.exceptions.RequestException as exc:
         st.error(f"FastAPI request failed: {exc}")
-        st.caption("Check that FastAPI is running and that the API URL and request schema match.")
+        st.caption(
+            "Check that FastAPI is running and the API URL is correct."
+        )
         return
+
     except (ValueError, TypeError) as exc:
         st.error(f"Could not interpret FastAPI response: {exc}")
-        st.json(data if 'data' in locals() else {})
         return
+
+    # Display prediction results
     high_risk = prob >= THRESHOLD
+
     st.divider()
+
     a, b, c = st.columns(3)
+
     a.metric("Predicted Churn Probability", f"{prob:.1%}")
     b.metric("Decision Threshold", f"{THRESHOLD:.0%}")
-    c.metric("Classification", "At risk" if high_risk else "Lower risk")
-    fig = go.Figure(go.Indicator(mode="gauge+number", value=prob * 100,
-        number={"suffix":"%", "font":{"size":44}},
-        gauge={"axis":{"range":[0,100]}, "bar":{"color":RED if high_risk else GREEN},
-               "steps":[{"range":[0,45],"color":"#E6F6F0"}, {"range":[45,100],"color":"#FDEBEC"}],
-               "threshold":{"line":{"color":"#17243C","width":3},"value":45}}))
-    fig.update_layout(height=320, margin=dict(l=30,r=30,t=25,b=15), paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig, use_container_width=True)
-    st.warning("Higher-risk customer: consider an appropriate retention outreach or service review." if high_risk else
-               "Lower-risk customer: maintain service quality and monitor for changes.")
-    st.caption("This is a statistical prediction, not a certainty. The 45% threshold is a decision rule; probability calibration has not been established here.")
+    c.metric(
+        "Classification",
+        "At risk" if high_risk else "Lower risk"
+    )
 
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=prob * 100,
+            number={"suffix": "%", "font": {"size": 44}},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": RED if high_risk else GREEN},
+                "steps": [
+                    {"range": [0, 45], "color": "#E6F6F0"},
+                    {"range": [45, 100], "color": "#FDEBEC"}
+                ],
+                "threshold": {
+                    "line": {"color": "#17243C", "width": 3},
+                    "value": 45
+                }
+            }
+        )
+    )
+
+    fig.update_layout(
+        height=320,
+        margin=dict(l=30, r=30, t=25, b=15),
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.warning(
+        "Higher-risk customer: consider appropriate retention outreach "
+        "or a service review."
+        if high_risk
+        else "Lower-risk customer: maintain service quality and monitor changes."
+    )
+
+    st.caption(
+        "This is a statistical prediction, not a certainty. "
+        "The 45% threshold is a decision rule; probability calibration "
+        "has not been established here."
+    )
+    
 
 def model_info():
     title("Model Performance", "Transparent documentation of the deployed churn classification model.")
@@ -347,7 +435,7 @@ with st.sidebar:
     st.write("**Logistic Regression**")
     st.caption("ROC-AUC · 0.8491  |  Threshold · 0.45")
     st.divider()
-    api_url = st.text_input("FastAPI prediction endpoint", value=os.getenv("CHURN_API_URL", "http://localhost:8501/predict"))
+    api_url = st.text_input("FastAPI prediction endpoint", value=os.getenv("CHURN_API_URL", "http://localhost:8000/predict"))
 
 if page == "Predict Churn":
     predict(api_url)
