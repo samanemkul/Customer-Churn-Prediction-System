@@ -47,12 +47,38 @@ def title(text: str, subtitle: str):
     st.title(text)
     st.markdown(f'<div class="page-sub">{subtitle}</div>', unsafe_allow_html=True)
 
+COLUMN_MAPPING = {
+    "CustomerID": "customerID",
+    "Senior Citizen": "SeniorCitizen",
+    "Tenure Months": "tenure",
+    "Phone Service": "PhoneService",
+    "Multiple Lines": "MultipleLines",
+    "Internet Service": "InternetService",
+    "Online Security": "OnlineSecurity",
+    "Online Backup": "OnlineBackup",
+    "Device Protection": "DeviceProtection",
+    "Tech Support": "TechSupport",
+    "Streaming TV": "StreamingTV",
+    "Streaming Movies": "StreamingMovies",
+    "Paperless Billing": "PaperlessBilling",
+    "Payment Method": "PaymentMethod",
+    "Monthly Charges": "MonthlyCharges",
+    "Total Charges": "TotalCharges",
+    "Churn Value": "Churn",
+}
+
+
 @st.cache_data(show_spinner=False)
 def load_dataset(path: str) -> pd.DataFrame:
-    if path.endswith(".xlsx"):
-        return pd.read_excel(path)
+    if path.lower().endswith(".xlsx"):
+        df = pd.read_excel(path)
+    else:
+        df = pd.read_csv(path)
 
-    return pd.read_DATASET(path)
+    df.columns = df.columns.str.strip()
+    df = df.rename(columns=COLUMN_MAPPING)
+
+    return df
 
 
 def prepare_data(raw: pd.DataFrame) -> pd.DataFrame:
@@ -190,7 +216,7 @@ def analysis(df: pd.DataFrame):
             st.plotly_chart(fig, use_container_width=True)
     with st.expander("View filtered data"):
         st.dataframe(valid, use_container_width=True, hide_index=True)
-        st.download_button("Download filtered DATASET", valid.to_DATASET(index=False), "filtered_customers.DATASET", "text/DATASET")
+        st.download_button("Download filtered DATASET", valid.to_csv(index=False), "filtered_customers.DATASET", "text/csv")
 
 
 def prediction_inputs():
@@ -321,7 +347,7 @@ with st.sidebar:
     st.write("**Logistic Regression**")
     st.caption("ROC-AUC · 0.8491  |  Threshold · 0.45")
     st.divider()
-    api_url = st.text_input("FastAPI prediction endpoint", value=os.getenv("CHURN_API_URL", "/predict"))
+    api_url = st.text_input("FastAPI prediction endpoint", value=os.getenv("CHURN_API_URL", "http://localhost:8501/predict"))
 
 if page == "Predict Churn":
     predict(api_url)
