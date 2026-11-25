@@ -11,7 +11,7 @@ venv/
 .ipynb_checkpoints/
 
 # Dataset and temporary files
-dataset/
+
 archive.zip
 *~
 
